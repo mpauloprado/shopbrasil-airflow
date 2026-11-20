@@ -1,0 +1,128 @@
+# Atividade 01 - ShopBrasil
+# Airflow 2.9.3 + PostgreSQL 16 (mesma base do lab da disciplina)
+#
+#   docker compose up -d   -> sobe tudo
+#   http://localhost:8080  -> Airflow (usuário admin / senha admin)
+#   docker compose down -v -> derruba e apaga os dados
+#
+# Senhas e chaves daqui são só de laboratório.
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.9.3-python3.11
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-meta/airflow
+    AIRFLOW__CORE__FERNET_KEY: "MU-qv6Avgrh3JfsSQHBfIv1hRzOvgx4AnlYpj8izxXc="
+    AIRFLOW__WEBSERVER__SECRET_KEY: "shopbrasil-lab"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    # o DAG já sobe ligado, para rodar sozinho no horário
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+    AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: "America/Sao_Paulo"
+    _PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-postgres==5.11.0 requests==2.32.3 pytest==8.3.3"
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./plugins:/opt/airflow/plugins
+    - ./tests:/opt/airflow/tests
+    # logs num volume do Docker: evita erro de permissão de pasta no Linux
+    - airflow-logs:/opt/airflow/logs
+  depends_on:
+    postgres-meta:
+      condition: service_healthy
+    postgres-analitico:
+      condition: service_healthy
+  networks:
+    - airflow-net
+
+services:
+  # banco interno do Airflow
+  postgres-meta:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-meta-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - airflow-net
+
+  # base analítica, onde o pipeline grava as métricas
+  postgres-analitico:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: shopbrasil
+      POSTGRES_PASSWORD: shopbrasil
+      POSTGRES_DB: analytics
+    volumes:
+      - postgres-analitico-data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "shopbrasil", "-d", "analytics"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - airflow-net
+
+  # roda uma vez: prepara o banco, cria usuário, Connection e Pool, e termina
+  airflow-init:
+    <<: *airflow-common
+    command:
+      - bash
+      - -c
+      - |
+        airflow db migrate
+        airflow users create --username admin --password admin --role Admin \
+          --firstname Admin --lastname ShopBrasil --email admin@shopbrasil.local
+        airflow connections delete postgres_shopbrasil
+        airflow connections add postgres_shopbrasil --conn-type postgres \
+          --conn-host postgres-analitico --conn-port 5432 --conn-schema analytics \
+          --conn-login shopbrasil --conn-password shopbrasil
+        airflow pools set ecommerce_pool 2 "metricas por categoria"
+        echo "Airflow pronto em http://localhost:8080"
+    restart: "no"
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "airflow", "jobs", "check", "--job-type", "SchedulerJob", "--allow-multiple", "--limit", "100"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
+
+volumes:
+  postgres-meta-data:
+  postgres-analitico-data:
+  airflow-logs:
+
+networks:
+  airflow-net:
