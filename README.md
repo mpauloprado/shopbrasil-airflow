@@ -136,5 +136,4 @@ sql/init.sql                          tabelas da base analítica
 tests/test_pipeline.py                testes do DAG e do operador
 ```
 
-Versões: Airflow 2.9.3 (Python 3.11), provider Postgres 5.11.0 e PostgreSQL 16, as mesmas do
-lab da disciplina.
+Versões: Airflow 2.9.3 (Python 3.11), provider Postgres 5.11.0 e PostgreSQL 16.
