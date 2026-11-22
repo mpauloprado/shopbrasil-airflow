@@ -1,11 +1,9 @@
 # Atividade 01 - ShopBrasil
-# Airflow 2.9.3 + PostgreSQL 16 (mesma base do lab da disciplina)
+# Airflow 2.9.3 + PostgreSQL 16
 #
 #   docker compose up -d   -> sobe tudo
 #   http://localhost:8080  -> Airflow (usuário admin / senha admin)
 #   docker compose down -v -> derruba e apaga os dados
-#
-# Senhas e chaves daqui são só de laboratório.
 
 x-airflow-common: &airflow-common
   image: apache/airflow:2.9.3-python3.11
@@ -23,7 +21,6 @@ x-airflow-common: &airflow-common
     - ./dags:/opt/airflow/dags
     - ./plugins:/opt/airflow/plugins
     - ./tests:/opt/airflow/tests
-    # logs num volume do Docker: evita erro de permissão de pasta no Linux
     - airflow-logs:/opt/airflow/logs
   depends_on:
     postgres-meta:
